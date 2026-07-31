@@ -142,4 +142,4 @@ Three subsidiary findings reinforce the main result:
 2. Feature importance analysis confirms that 96.9% of the ML detector's discriminative information comes from call-time features that the baseline structurally cannot observe.
 3. The 8 false negatives on the balanced corpus correspond exclusively to the stealthy rug-pull subclass — sessions that are genuinely indistinguishable from benign sessions in the feature space — and establish a theoretically motivated upper bound on recall for any point-in-time detection approach.
 
-The implications of the stealthy bound, the limitations of the synthetic corpus, and the relationship to existing defences are examined in Chapter 5.
+The implications of the stealthy bound, the limitations of the synthetic corpus, and the relationship to existing defences are examined in Chapter 5. The verbatim console output from `evaluation.evaluate` and `detection.train_model`, confirming these results numerically, is reproduced in Appendix C.
