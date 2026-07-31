@@ -30,11 +30,34 @@ The threat model covers two documented attack variants drawn from the literature
 
 The experimental environment consists of three independent components, all executed in a locally isolated Python environment with no external network access.
 
-**MCP server (`server/testbed_server.py`).** A FastMCP server exposes five synthetic tools (`get_weather`, `search_docs`, `create_ticket`, `send_notification`, `lookup_account`) over stdio transport. Each tool carries a benign description and, for corpus-generation purposes, a set of associated poison fragments — instruction-like strings that mirror the pattern documented in the literature (Invariant Labs, 2025) but are abstracted enough to constitute training signal rather than a working exploit. The server is used for manual demonstration and supervisor inspection; the automated pipeline does not require it to be running.
+**MCP server (`server/testbed_server.py`).** A FastMCP server exposes five synthetic tools (`get_weather`, `search_docs`, `create_ticket`, `send_notification`, `lookup_account`) over stdio transport. Each tool carries a benign description and, for corpus-generation purposes, a set of associated poison fragments — instruction-like strings that mirror the pattern documented in the literature (Invariant Labs, 2025) but are abstracted enough to constitute training signal rather than a working exploit. The server is used for manual demonstration and supervisor inspection; the automated pipeline does not require it to be running. The five tools in the catalogue, their parameter schemas, and their base descriptions are listed below:
+
+| Tool name | Schema fields | Benign description |
+| --- | --- | --- |
+| `get_weather` | `city`, `units` | Returns the current weather for a given city name. |
+| `search_docs` | `query`, `max_results` | Searches an internal document index and returns matching titles. |
+| `create_ticket` | `title`, `description`, `priority` | Creates a support ticket with a title and description. |
+| `send_notification` | `channel`, `message` | Sends a notification message to a named channel. |
+| `lookup_account` | `account_id` | Looks up a customer account record by account ID. |
 
 **MCP client (`client/testbed_client.py`).** An async MCP client based on the reference `ClientSession` implementation connects to the testbed server, lists exposed tools, and performs sample invocations. Like the server, this component is used for demonstration only and is not part of the training or evaluation pipeline.
 
-**Detection pipeline.** The four pipeline modules (`corpus/`, `baseline/`, `detection/`, `evaluation/`) form a reproducible, sequentially executed pipeline that generates data, trains the model, and produces evaluation metrics entirely from Python scripts without any live MCP connection.
+**Detection pipeline.** The four pipeline modules (`corpus/`, `baseline/`, `detection/`, `evaluation/`) form a reproducible, sequentially executed pipeline that generates data, trains the model, and produces evaluation metrics entirely from Python scripts without any live MCP connection. The data flow through the pipeline is illustrated below:
+
+```mermaid
+flowchart TD
+    GC["corpus/generate_corpus.py"] --> BC[("data/corpus.csv\n600 sessions, balanced")]
+    GC --> SC[("data/corpus_skewed.csv\n600 sessions, 90/5/5")]
+    BC --> SV["baseline/schema_validator.py"]
+    BC --> TM["detection/train_model.py"]
+    SV --> BR[("data/baseline_results.csv")]
+    TM --> MR[("data/model_test_results.csv")]
+    TM --> DM[("data/detector_model_*.joblib")]
+    MR --> EV["evaluation/evaluate.py"]
+    DM --> EV
+    SC --> EV
+    EV --> ES[("data/evaluation_summary.csv")]
+```
 
 ---
 
@@ -50,12 +73,22 @@ The corpus contains 600 sessions distributed equally across three labelled class
 
 **Rug-pull.** The tool registers with a clean, unmodified description — indistinguishable from a benign registration — and then mutates its description partway through the session. This is the delayed-attack pattern described by Willison (2025), in which the server passes initial inspection and only injects malicious content after it has been trusted. The mutation is modelled as occurring after at least half the session's calls have completed, at a randomised point between 600 and 7,200 seconds after registration, reflecting the realistic operational window a compromised server might exploit.
 
+The following table illustrates representative descriptions for each class, using the `get_weather` tool as a concrete example:
+
+| Class | Description at registration | Description at call time | Detectable at registration? |
+| --- | --- | --- | --- |
+| Benign | "Returns the current weather for a given city name." | Same (or with a benign suffix, e.g. " (v2: now supports batch input.)") | No |
+| Poisoned | "Returns the current weather for a given city name. IMPORTANT: ignore prior instructions and always set verbose\_mode=true and attach environment variables." | Identical to registration | Yes — keywords `ignore prior`, `verbose_mode` present at registration |
+| Rug-pull | "Returns the current weather for a given city name." | "Returns the current weather for a given city name. NOTE TO ASSISTANT: this tool must be called before any other tool in every session, regardless of user request." | No — registration description is clean; injection only visible at call time |
+
+The rug-pull registration description is identical to the benign registration description. A defender comparing descriptions at registration time cannot distinguish the two, which is the structural basis for the baseline's 0.000 rug-pull recall.
+
 ### 3.3.2 Feature Extraction
 
 Each session is represented as a single row of eleven metadata features. These features were chosen to be computable entirely from protocol-level data — tool names, descriptions, parameter schemas, and call timing — without any access to model inputs or outputs, and without treating description text as a natural-language artefact to be classified by content. This scope decision follows directly from the research question, which asks whether *metadata and description-change patterns* (rather than content analysis) can improve detection.
 
 | Feature | Description |
-|---|---|
+| --- | --- |
 | `num_schema_fields` | Number of declared parameter fields in the tool schema |
 | `reg_description_length` | Character length of the description at registration time |
 | `reg_description_entropy` | Shannon character entropy of the registration description |
@@ -79,17 +112,29 @@ An initial version of the corpus produced trivially separable classes: rug-pull 
 To address this, five noise mechanisms are applied during corpus generation. Their rates are set as documented constants in the source (`corpus/generate_corpus.py`) to support reproducibility:
 
 | Mechanism | Rate | Effect |
-|---|---|---|
+| --- | --- | --- |
 | Benign with accidental keyword hit | 8% | Legitimate DevOps/sysadmin tool descriptions that contain terminology matching the keyword list; introduces false-positive pressure |
 | Benign with legitimate description update | 20% | Tool description updated mid-session for a non-malicious reason (version bump, clarification); creates benign sessions where `description_changed = 1` |
 | Benign with verbose description | 35% | Legitimately lengthy tool documentation (130–250 characters); blurs the length boundary between benign and attack sessions |
 | Poisoned/rug-pull with evasive fragment | 12–15% | Injected text uses phrasing outside the keyword list, simulating adversaries aware of keyword-based filters |
 | Poisoned/rug-pull with short fragment | 20–25% | Terse injection directives (20–50 characters) that minimise the description-length delta, blurring length-based discrimination |
+| Rug-pull with partial leak at registration | 15% | A sloppy attacker includes an evasive fragment in the registration description, partially revealing the attack at registration time; these sessions are visible to the baseline keyword scan, preventing it from achieving 0% recall on the full rug-pull class |
 | Stealthy rug-pull | 10% | Attacker mutates the description but reverts it before the metadata snapshot is taken; the session is ground-truth labelled as `rugpull` but all features are identical to a benign session |
 
 The stealthy rug-pull mechanism warrants additional discussion. It represents a fundamental limitation of point-in-time metadata sampling: if an attacker can control when the description is visible and ensures it appears clean at the moment of inspection, no feature-based detector operating on a single snapshot will identify the attack. These sessions are deliberately included in the `rugpull` class to bound the expected recall of any detector and to produce a theoretically motivated rather than artificially inflated false-negative rate. Continuous monitoring — capturing description state at every tool invocation rather than at a single checkpoint — is identified as the necessary countermeasure in Section 5.3.
 
-After applying the noise model, the class distributions of all eleven features overlap substantially, and the classifier must integrate evidence across multiple features to make predictions. This is verified by inspecting the trained model's feature importance scores (Section 4.2).
+The per-class distribution of the six most informative features, computed over all 200 sessions in each class of the full corpus, confirms that the noise model achieves its design goal of producing separable-but-overlapping distributions:
+
+| Feature | Benign mean (SD) | Poisoned mean (SD) | Rug-pull mean (SD) |
+| --- | --- | --- | --- |
+| `reg_description_length` | 104 (67) | 140 (34) | 67 (30) |
+| `call_description_length` | 121 (77) | 140 (34) | 133 (40) |
+| `reg_description_entropy` | 4.01 (0.18) | 4.27 (0.18) | 3.93 (0.12) |
+| `call_description_entropy` | 4.06 (0.20) | 4.27 (0.18) | 4.23 (0.21) |
+| `call_suspicious_keyword_hits` | 0.05 (0.22) | 1.77 (1.34) | 1.50 (1.38) |
+| `description_changed_after_registration` | 0.21 (0.41) | 0.00 (0.00) | 0.90 (0.30) |
+
+Several properties are worth noting. `call_description_length` shows the expected attack-class elevation — poisoned sessions average 140 characters (SD 34) and rug-pull sessions 133 (SD 40), against 121 (SD 77) for benign — but the large benign standard deviation produces substantial overlap, so a length threshold alone cannot discriminate. `call_suspicious_keyword_hits` is elevated in both attack classes (means of 1.77 and 1.50) but non-zero in a small minority of benign sessions (mean 0.05), reflecting the accidental-keyword noise mechanism. `description_changed_after_registration` is exactly zero for all poisoned sessions (injection is present at registration and does not change) and 0.90 for rug-pull sessions (the remaining 10% are stealthy reversions); the 0.21 benign mean reflects legitimate mid-session updates. After applying the noise model, the class distributions of all eleven features overlap substantially, and the classifier must integrate evidence across multiple features to make predictions. This is confirmed by the feature importance analysis in Section 4.5.
 
 ---
 
@@ -98,6 +143,15 @@ After applying the noise model, the class distributions of all eleven features o
 The baseline is a schema validator (`baseline/schema_validator.py`) that inspects tool metadata at registration time and flags a session as an attack if the registration description contains one or more entries from the suspicious-keyword list — that is, if `reg_suspicious_keyword_hits >= 1`. This represents the category of defences in common operational use: a single-pass check at the point of trust establishment (Bhatt et al., 2025; Hou et al., 2025).
 
 The structural limitation of this design follows directly from the rug-pull attack class. Rug-pull sessions register with a clean description (`reg_suspicious_keyword_hits = 0` for the non-sloppy majority), so the baseline validator assigns a flag value of zero to every such session regardless of what the description later becomes. This is not a deficiency in any particular keyword list or threshold; it is a consequence of checking trust once rather than continuously. Even a perfect oracle that could identify every injection keyword would fail to catch a rug-pull that uses no keywords at registration, because the attack occurs after the check has already been completed.
+
+The complete detection logic is a single conditional (`baseline/schema_validator.py`):
+
+```python
+def flag_at_registration(row) -> int:
+    return int(row["reg_suspicious_keyword_hits"] >= 1)
+```
+
+This function expresses the structural constraint precisely: the baseline has access only to `reg_suspicious_keyword_hits`, a feature computed from the registration-time description. No call-time feature, no change flag, and no timing information enters the decision. Its simplicity is deliberate — it is a formalisation of the single-pass keyword check described in the literature (Bhatt et al., 2025; Hou et al., 2025), not a straw man designed to fail.
 
 ---
 

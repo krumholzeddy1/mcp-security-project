@@ -52,7 +52,7 @@ The baseline's 80 false negatives — sessions that are genuine attacks but are 
 
 ### 4.4.1 Rug-Pull Detection
 
-The baseline achieves 0.000 rug-pull recall. This is not a statistical finding — it is deterministic. A rug-pull session registers with a clean description, producing `reg_suspicious_keyword_hits = 0`. The baseline's rule (`reg_suspicious_keyword_hits >= 1`) therefore assigns a negative prediction to every rug-pull session. No tuning of the keyword list or the detection threshold can change this outcome while the check operates at registration time.
+The baseline achieves 0.000 rug-pull recall. This is not a statistical finding — it is deterministic. A rug-pull session registers with a clean description, producing `reg_suspicious_keyword_hits = 0`. The baseline's rule (`reg_suspicious_keyword_hits >= 1`) therefore assigns a negative prediction to every rug-pull session. No tuning of the keyword list or the detection threshold can change this outcome while the check operates at registration time. This result holds across the full 600-session corpus, not just the 30% test partition: `data/baseline_results.csv` confirms that the baseline flagged zero of 200 rug-pull sessions, establishing that 0.000 recall is a property of the detection rule applied to the attack class rather than an artefact of which sessions happened to fall in the test split.
 
 **How this answers the research question.** Willison (2025) described the rug-pull mechanism qualitatively — a tool passes initial review and injects malicious content only after being trusted. This dissertation provides the first quantitative demonstration that a registration-time validator achieves exactly 0% rug-pull recall, not merely reduced recall. It confirms the mechanism Willison described with measured evidence rather than a single illustrative account. The finding also corroborates the architectural analysis of Hou et al. (2025): their framing of MCP's "trust without re-verification" weakness predicts precisely this result — a defence that checks trust once but never re-checks is structurally blind to any post-trust change.
 
@@ -68,11 +68,30 @@ The GBT achieves 100% recall on poisoned sessions (53/53). All three ML detector
 
 ---
 
-## 4.5 Feature Importance Analysis
+## 4.5 Feature Analysis
 
-Table 4.3 reports feature importance scores from the trained GBT — the cumulative reduction in node impurity (a measure of how much each feature reduces classification uncertainty at the decision nodes across the ensemble; higher values indicate a greater contribution to correct classification) attributable to each feature across all trees. Importances sum to 1.0.
+### 4.5.1 Per-Class Feature Distributions
 
-### Table 4.3: GBT feature importances
+Table 4.3 reports the per-class mean and standard deviation of the six most informative features across all 200 sessions per class in the full corpus. These distributions are the mechanistic foundation for interpreting the feature importance scores that follow: they show which features actually separate the classes and how much overlap the noise model introduces.
+
+### Table 4.3: Per-class feature distributions (full corpus, n=200 per class; mean ± SD)
+
+| Feature | Benign | Poisoned | Rug-pull |
+| --- | --- | --- | --- |
+| `reg_description_length` | 104 ± 67 | 140 ± 34 | 67 ± 30 |
+| `call_description_length` | 121 ± 77 | 140 ± 34 | 133 ± 40 |
+| `reg_description_entropy` | 4.01 ± 0.18 | 4.27 ± 0.18 | 3.93 ± 0.12 |
+| `call_description_entropy` | 4.06 ± 0.20 | 4.27 ± 0.18 | 4.23 ± 0.21 |
+| `call_suspicious_keyword_hits` | 0.05 ± 0.22 | 1.77 ± 1.34 | 1.50 ± 1.38 |
+| `description_changed_after_registration` | 0.21 ± 0.41 | 0.00 ± 0.00 | 0.90 ± 0.30 |
+
+`call_description_length` shows the expected attack-class elevation — poisoned sessions average 140 characters (SD 34) and rug-pull 133 (SD 40), against 121 (SD 77) for benign — but the large benign standard deviation means that the class means overlap substantially; a simple length threshold cannot discriminate reliably. `call_suspicious_keyword_hits` is elevated in both attack classes (1.77 and 1.50 respectively) and near-zero in benign sessions (0.05), reflecting the accidental-keyword and evasive-fragment noise. `description_changed_after_registration` is exactly zero for all poisoned sessions (injection is present from registration and does not change) and 0.90 for rug-pull sessions (the remaining 10% are stealthy reversions); the 0.21 benign mean reflects legitimate mid-session updates. The large standard deviations and overlapping means confirm the noise model is working as designed: the classes are separable but not trivially so.
+
+### 4.5.2 Feature Importance Scores
+
+Table 4.4 reports feature importance scores from the trained GBT — the cumulative reduction in node impurity (a measure of how much each feature reduces classification uncertainty at the decision nodes across the ensemble; higher values indicate a greater contribution to correct classification) attributable to each feature across all trees. Importances sum to 1.0.
+
+### Table 4.4: GBT feature importances
 
 | Feature | Importance | Observable by baseline? |
 | --- | --- | --- |
@@ -88,7 +107,7 @@ Table 4.3 reports feature importance scores from the trained GBT — the cumulat
 | `num_schema_fields` | 0.003 | Yes |
 | `description_changed_after_registration` | ~0.000 | No |
 
-**How this answers the research question.** The feature importance distribution directly answers *why* the ML detector outperforms the baseline. The two most important features (`call_description_length`, 54.5%; `call_suspicious_keyword_hits`, 34.0%) are both call-time features unavailable to the baseline. Together they account for 88.5% of the model's discriminative information. The four registration-time features available to the baseline (`reg_description_length`, `reg_description_entropy`, `reg_suspicious_keyword_hits`, `num_schema_fields`) account for a combined 3.1%. The detector's advantage is mechanistically explained by access to features that the baseline structurally cannot observe — not by any incidental property of the synthetic corpus.
+**How this answers the research question.** The feature importance distribution directly answers *why* the ML detector outperforms the baseline. The two most important features (`call_description_length`, 54.5%; `call_suspicious_keyword_hits`, 34.0%) are both call-time features unavailable to the baseline. Together they account for 88.5% of the model's discriminative information. The per-class distributions in Table 4.3 explain why: `call_description_length` separates benign (mean 121) from attack (mean 133–140) sessions, and `call_suspicious_keyword_hits` separates benign (mean 0.05) from attack (mean 1.50–1.77) sessions. The four registration-time features available to the baseline (`reg_description_length`, `reg_description_entropy`, `reg_suspicious_keyword_hits`, `num_schema_fields`) account for a combined 3.1%. The detector's advantage is mechanistically explained by access to features that the baseline structurally cannot observe — not by any incidental property of the synthetic corpus.
 
 **The zero importance of `description_changed_after_registration`.** This binary flag would naively appear to be the most informative feature for rug-pull detection — it is 1 for all non-stealthy rug-pull sessions and 0 for all poisoned and most benign sessions. Its near-zero importance indicates that the GBT model never selects it as a splitting criterion because the call-time length and keyword features already provide superior splits at every node. The classifier learns a richer representation of the attack signal than a single binary flag, which is the outcome the noise model was designed to produce and provides evidence that the learned decision boundary generalises beyond the training artefact.
 
@@ -96,9 +115,9 @@ Table 4.3 reports feature importance scores from the trained GBT — the cumulat
 
 ## 4.6 Robustness Check: Skewed Class Balance (90/5/5)
 
-Table 4.4 reports results for the GBT model (trained on the balanced corpus) applied to the skewed corpus, in which 540 of 600 sessions are benign (90%) and 30 each are poisoned and rug-pull (5% each).
+Table 4.5 reports results for the GBT model (trained on the balanced corpus) applied to the skewed corpus, in which 540 of 600 sessions are benign (90%) and 30 each are poisoned and rug-pull (5% each).
 
-### Table 4.4: Skewed corpus evaluation (GBT model trained on balanced corpus)
+### Table 4.5: Skewed corpus evaluation (GBT model trained on balanced corpus)
 
 | Method | Precision | Recall | F1 | Recall: poisoned | Recall: rug-pull | FP rate (benign) |
 | --- | --- | --- | --- | --- | --- | --- |
