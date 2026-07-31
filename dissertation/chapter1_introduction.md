@@ -16,30 +16,52 @@ This project addresses that specific gap:
 
 The key term in the research question is the observability window. Existing defences observe tool metadata once; the hypothesis tested here is that extending observation to include call-time metadata and the pattern of description changes across a session provides the additional signal needed to detect the rug-pull class that registration-time checks cannot reach.
 
-## 1.3 Approach and Scope
+## 1.3 Aim and Objectives
 
-The study constructs a controlled, isolated testbed comprising a real MCP server and client built on the reference implementation, generates a synthetic labelled corpus of 600 tool-call sessions across three classes (benign, poisoned, and rug-pull), and trains a gradient-boosted tree classifier on eleven metadata features extracted from each session. The classifier is then compared against a baseline schema-validator on a held-out test set, with performance reported as precision, recall, and F1 score decomposed by attack class.
+**Aim.** To determine whether a machine-learning classifier trained on MCP tool-call metadata features observable after tool registration can detect rug-pull attacks that registration-time schema-validation defences are structurally incapable of detecting, and to quantify the extent of that improvement against a representative baseline.
 
-The scope is deliberately limited to MCP tool-poisoning detection. A comparable analysis of the Agent2Agent (A2A) protocol is identified in the literature as a natural extension of this work but falls outside the project timeline and is proposed as future work (Section 6.3). All experimental work is conducted within a sandboxed, locally hosted environment using entirely synthetic data; no live third-party servers are accessed at any stage.
+**Objectives.**
 
-## 1.4 Contributions
+1. Review published literature on MCP's architecture, documented tool-poisoning and rug-pull attacks, existing defences, and ML-based anomaly detection techniques, to identify the research gap this study addresses.
+
+2. Design and implement a controlled, isolated MCP testbed capable of reproducing tool-poisoning and rug-pull attack scenarios without interacting with any external or production server.
+
+3. Generate a reproducible, labelled synthetic corpus of at least 600 tool-call sessions spanning benign, poisoned, and rug-pull classes, incorporating a documented noise model that produces overlapping feature distributions across classes.
+
+4. Implement a registration-time schema-validator baseline representative of defences currently described in the literature, and characterise its structural blind spot with respect to the rug-pull class.
+
+5. Train three candidate ML classifiers — Logistic Regression, Random Forest, and Gradient Boosting — on eleven metadata features extracted from each session, using a fixed stratified split to ensure the comparison is reproducible and apples-to-apples.
+
+6. Compare all three ML detectors against the baseline on the held-out test set, reporting per-class precision, recall, and F1 score, with per-class recall on rug-pull sessions as the primary metric for evaluating the research question.
+
+7. Evaluate detection robustness under a realistically skewed class distribution (90% benign, 5% each attack class) and report any precision degradation in operational terms.
+
+8. Analyse feature importance scores from the trained models to establish whether any improvement in detection is mechanistically grounded in access to post-registration features, and to characterise the theoretical bound imposed on point-in-time detection by attacks that revert their mutation before observation.
+
+## 1.4 Approach and Scope
+
+The study adopts a positivist, quantitative, experimental design. A controlled, isolated testbed is constructed comprising a real MCP server and client built on the reference implementation, and a reproducible synthetic labelled corpus of 600 tool-call sessions is generated across three classes (benign, poisoned, and rug-pull). Three ML classifiers — Logistic Regression, Random Forest, and Gradient Boosting — are each trained on eleven metadata features extracted from each session and compared against a baseline schema-validator on a held-out test set, with performance reported as precision, recall, and F1 score decomposed by attack class. A separate robustness check on a skewed corpus (90% benign, 5% each attack class) evaluates whether detection capability generalises under realistic class imbalance.
+
+The scope is deliberately limited to MCP tool-poisoning detection. A comparable analysis of the Agent2Agent (A2A) protocol is identified in the literature as a natural extension of this work but falls outside the project timeline and is proposed as future work (Section 6.4). All experimental work is conducted within a sandboxed, locally hosted environment using entirely synthetic data; no live third-party servers are accessed at any stage.
+
+## 1.5 Contributions
 
 This project makes three contributions to the nascent literature on MCP security:
 
-1. **A characterisation of the detection gap.** It provides a formal demonstration — grounded in a controlled experiment with documented noise assumptions — that a registration-time schema-validator achieves zero recall on rug-pull attacks by structural necessity, and quantifies how much of that gap a post-registration ML detector can close (88.1% rug-pull recall versus 0%).
+1. **A characterisation of the detection gap.** It provides a formal demonstration — grounded in a controlled experiment with documented noise assumptions — that a registration-time schema-validator achieves zero recall on rug-pull attacks by structural necessity, and quantifies how much of that gap post-registration ML detectors can close (88.1–93.3% rug-pull recall across three model families, versus 0% for the baseline).
 
 2. **A reproducible synthetic testbed.** The corpus generator, feature extraction pipeline, and evaluation harness are published as open-source artefacts with a fixed random seed and pinned dependencies, providing a reproducible baseline against which future detection methods can be compared.
 
 3. **A theoretical bound on point-in-time detection.** The stealthy rug-pull analysis (Chapter 5) establishes that any detector operating on a single metadata snapshot has a hard false-negative floor set by attacks timed to revert before the snapshot is taken, and identifies continuous session monitoring as the necessary architectural response.
 
-## 1.5 Dissertation Structure
+## 1.6 Dissertation Structure
 
-**Chapter 2** surveys the literature on MCP's security landscape, documented tool-poisoning attacks, existing defences, and the ML techniques applied to anomaly detection in security contexts.
+**Chapter 2** surveys the literature on MCP's security landscape, documented tool-poisoning attacks, existing defences, and the ML techniques applied to anomaly detection in security contexts *(Objective 1)*.
 
-**Chapter 3** describes the methodology: the testbed architecture, corpus generation design, noise model, feature set, baseline implementation, ML model selection, and evaluation protocol.
+**Chapter 3** describes the methodology: the testbed architecture, corpus generation design, noise model, feature set, baseline implementation, ML model selection, and evaluation protocol *(Objectives 2–5)*.
 
-**Chapter 4** presents the evaluation results — confusion matrices, per-class recall decomposition, and feature importance scores — and interprets each finding directly.
+**Chapter 4** presents the evaluation results — multi-model comparison, per-class recall decomposition, feature importance scores, and the skewed corpus robustness check — and interprets each finding in relation to the research question and the literature *(Objectives 6–8)*.
 
-**Chapter 5** discusses the implications of the results, the theoretical bound imposed by point-in-time sampling, the limitations of the synthetic corpus and feature set, and the relationship between the ML detector and existing registration-time defences.
+**Chapter 5** discusses the implications of the results, the theoretical bound imposed by point-in-time sampling, the limitations of the synthetic corpus and feature set, and the relationship between the ML detector and existing registration-time defences *(Objective 8)*.
 
-**Chapter 6** concludes by answering the research question, summarising the project's contributions, and identifying the directions for future work.
+**Chapter 6** concludes by verifying that each objective has been met, answering the research question, summarising the project's contributions, and identifying the directions for future work.

@@ -248,16 +248,44 @@ def generate(n_per_class: int = 200) -> list:
     return rows
 
 
-def main():
-    out_dir = Path(__file__).resolve().parents[1] / "data"
-    out_dir.mkdir(exist_ok=True)
-    rows = generate(n_per_class=200)  # 600 sessions total: 200 per class
-    out_path = out_dir / "corpus.csv"
+def generate_skewed(n_benign: int = 540, n_poisoned: int = 30, n_rugpull: int = 30) -> list:
+    """
+    Skewed class balance corpus for robustness evaluation (Unit 2.3 requirement).
+
+    Reflects a realistic deployment scenario where attacks are rare (5% each class).
+    Used to test whether precision degrades under class imbalance — a common failure
+    mode for classifiers trained on balanced data. Results are reported separately
+    from the balanced corpus (data/corpus_skewed.csv vs data/corpus.csv).
+    """
+    rows = []
+    sid = 10000  # offset avoids session_id collision with the balanced corpus
+    for label, n in (("benign", n_benign), ("poisoned", n_poisoned), ("rugpull", n_rugpull)):
+        for _ in range(n):
+            rows.append(make_session(sid, label))
+            sid += 1
+    random.shuffle(rows)
+    return rows
+
+
+def write_corpus(rows: list, out_path: Path) -> None:
     with open(out_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
     print(f"Wrote {len(rows)} sessions to {out_path}")
+
+
+def main():
+    out_dir = Path(__file__).resolve().parents[1] / "data"
+    out_dir.mkdir(exist_ok=True)
+
+    # Primary balanced corpus (200 per class)
+    rows = generate(n_per_class=200)
+    write_corpus(rows, out_dir / "corpus.csv")
+
+    # Skewed corpus for robustness check (90% benign / 5% poisoned / 5% rug-pull)
+    skewed = generate_skewed()
+    write_corpus(skewed, out_dir / "corpus_skewed.csv")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,5 @@
-method,precision,recall,f1
-baseline_schema_validator,0.909,0.333,0.488
-ml_anomaly_detector,0.957,0.933,0.945
+method,precision,recall,f1,recall_poisoned,recall_rugpull
+baseline_schema_validator,0.909,0.333,0.488,0.755,0.0
+logistic_regression,0.862,0.883,0.872,0.887,0.881
+random_forest,0.95,0.942,0.946,1.0,0.896
+gradient_boosting,0.957,0.933,0.945,1.0,0.881
