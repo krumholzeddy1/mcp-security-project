@@ -105,4 +105,4 @@ The baseline's precision also collapses under skew (0.429), while its rug-pull r
 
 ## 6.7 Summary
 
-The results answer H₁: the ML detector achieves 0.881–0.933 rug-pull recall against the baseline's 0.000 across both evaluation corpora. This improvement is consistent across all three ML model families (confirming it reflects the feature set, not the algorithm), mechanistically grounded in call-time features (96.9% of GBT importance), and residually bounded by stealthy attacks that are indistinguishable from benign in the feature space. Implications are discussed in Chapter 7.
+The results answer H₁: the ML detector achieves 0.881–0.933 rug-pull recall against the baseline's 0.000 across both evaluation corpora. This improvement is consistent across all three ML model families (confirming it reflects the feature set, not the algorithm), mechanistically grounded in call-time features (96.9% of GBT importance), and residually bounded by stealthy attacks that are indistinguishable from benign in the feature space.
