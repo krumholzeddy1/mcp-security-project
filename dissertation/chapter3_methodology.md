@@ -105,7 +105,7 @@ All experimental work was conducted in an isolated locally hosted Python environ
 
 ## 3.8 Data Sources and Quality
 
-### 3.8.2 Data Quality Assessment
+### 3.8.1 Data Quality Assessment
 
 The primary dataset is assessed against five quality criteria commonly applied to research datasets (Saunders, Lewis and Thornhill, 2019); the full assessment is reproduced in Appendix H. In summary: the corpus satisfies validity, reliability, accuracy, and completeness by construction — the fixed seed and deterministic feature computation ensure byte-for-byte reproducibility with no missing values. The criterion the dataset does not fully satisfy is **representativeness**: the synthetic corpus represents a model of real MCP deployments, not a sample from one, and the degree to which the learned detector generalises to real deployments is unknown.
 
