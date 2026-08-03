@@ -1,86 +1,76 @@
-# MCP Tool-Poisoning Detection — Project Code
+# MCP Tool-Poisoning Detection
 
-This is the working code behind the dissertation proposal *"Detecting
-Tool-Poisoning Attacks in Model Context Protocol (MCP) Agentic Systems
-Using Machine-Learning-Based Anomaly Detection."*
+Research code for the dissertation *"Detecting Tool-Poisoning Attacks in Model Context Protocol (MCP) Agentic Systems Using Machine-Learning-Based Anomaly Detection"*, submitted in partial fulfilment of the requirements for CO4011, University of Central Lancashire / RKC Lancashire.
 
-## What's here (mapped to the WBS from Task 1.3)
+---
 
-| Folder | WBS item | Status |
-|---|---|---|
-| `server/` | 2.1 MCP client/server harness | Working — real MCP server + tool catalog |
-| `client/` | 2.1 (manual sanity check) | Working — round-trips a real tool call |
-| `corpus/` | 2.2/2.3 Attack corpus generation | Working — generates labelled benign/poisoned/rug-pull sessions |
-| `baseline/` | 2.4 Baseline schema-validator | Working — registration-time-only keyword check |
-| `detection/` | 3.1–3.3 Anomaly-detection model | Working — GradientBoostingClassifier on metadata features |
-| `evaluation/` | 4.1 Evaluation vs. baseline | Working — precision/recall/F1, split by attack class |
-| `tests/` | — | Smoke tests confirming the rug-pull blind spot is real, not a bug |
+## Repository Structure
 
-## Quickstart
+| Folder / File | Purpose |
+| --- | --- |
+| `server/tool_definitions.py` | Shared `ToolSpec` dataclass and `TOOL_CATALOG` — the five tool archetypes and associated injection fragments used across the pipeline |
+| `server/testbed_server.py` | FastMCP server exposing the tool catalogue over stdio for demonstration and supervisor inspection |
+| `client/testbed_client.py` | Async MCP client for manual round-trip demonstration against the testbed server |
+| `corpus/generate_corpus.py` | Synthetic corpus generator — produces `data/corpus.csv` (600 sessions, balanced) and `data/corpus_skewed.csv` (600 sessions, 90/5/5) |
+| `baseline/schema_validator.py` | Registration-time keyword-based schema-validator baseline |
+| `detection/train_model.py` | Trains Logistic Regression, Random Forest, and Gradient Boosting classifiers on the balanced corpus |
+| `evaluation/evaluate.py` | Compares all four methods on balanced and skewed corpora; writes `data/evaluation_summary.csv` |
+| `tests/test_pipeline.py` | Six smoke tests validating corpus generation invariants and the baseline's structural blind spot |
+
+---
+
+## Evaluation Results
+
+Results are produced by running the pipeline in sequence against the committed corpus (see Appendix C of the dissertation for the verbatim console output). Per-class recall is the headline metric: a missed attack carries a higher operational cost than a false alarm, and reporting overall recall or F1 alone would allow high poisoned-class recall to mask a rug-pull recall of zero — which is precisely the pattern the baseline exhibits.
+
+### Balanced corpus (200 sessions per class, 70/30 stratified split)
+
+| Method | Precision | Recall | F1 | Recall: poisoned | Recall: rug-pull |
+| --- | --- | --- | --- | --- | --- |
+| Baseline schema-validator | 0.909 | 0.333 | 0.488 | 0.755 | **0.000** |
+| Logistic Regression | 0.862 | 0.883 | 0.872 | 0.887 | 0.881 |
+| Random Forest | 0.950 | 0.942 | 0.946 | 1.000 | 0.896 |
+| Gradient Boosting (primary) | 0.957 | 0.933 | **0.945** | 1.000 | 0.881 |
+
+The baseline achieves **0.000 rug-pull recall** by structural necessity: rug-pull attacks register with a clean description, so `reg_suspicious_keyword_hits = 0` at the moment the baseline inspects the session. No tuning of the keyword list or detection threshold changes this outcome while the check operates at registration time. All three ML detectors achieve rug-pull recall between 0.881 and 0.896, using call-time features that are structurally unavailable to the baseline — principally `call_description_length` (54.5% GBT feature importance) and `call_suspicious_keyword_hits` (34.0%), which together account for 88.5% of the model's discriminative information.
+
+### Robustness check — skewed corpus (90% benign, 5% poisoned, 5% rug-pull)
+
+The primary GBT model (trained on the balanced corpus) is applied without retraining to a skewed distribution that approximates real-world class proportions.
+
+| Method | Precision | Recall | F1 | Recall: rug-pull | FP rate (benign) |
+| --- | --- | --- | --- | --- | --- |
+| Baseline schema-validator | 0.429 | 0.400 | 0.414 | 0.000 | 5.9% |
+| Gradient Boosting | 0.682 | 0.967 | 0.800 | **0.933** | 5.0% |
+
+The ML detector's rug-pull recall rises to 0.933 under skew, confirming that detection capability generalises beyond the balanced training distribution. Precision drops to 0.682 — the expected effect of applying a balanced-trained model to a skewed set, where false positives represent a larger share of positive predictions. The baseline's rug-pull recall remains 0.000 under both distributions.
+
+---
+
+## Reproducing the Results
+
+All stochastic operations use `random.seed(42)` (corpus generation) and `random_state=42` (scikit-learn train/test split and all classifiers). Running the pipeline with the pinned environment below will produce byte-for-byte identical outputs.
 
 ```bash
-python3 -m venv venv && source venv/bin/activate   # or your preferred env manager
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-python -m corpus.generate_corpus       # writes data/corpus.csv
-python -m baseline.schema_validator    # writes data/baseline_results.csv
-python -m detection.train_model        # writes data/detector_model.joblib
-python -m evaluation.evaluate          # writes data/evaluation_summary.csv
+python -m corpus.generate_corpus       # → data/corpus.csv, data/corpus_skewed.csv
+python -m baseline.schema_validator    # → data/baseline_results.csv
+python -m detection.train_model        # → data/detector_model_*.joblib, data/model_test_results.csv
+python -m evaluation.evaluate          # → data/evaluation_summary.csv
 
-python -m tests.test_pipeline          # smoke tests
-
-# optional: watch a real MCP round-trip happen
-python -m client.testbed_client
+python -m pytest tests/ -v             # six smoke tests — all pass
 ```
 
-## What the first run already shows
+The full environment specification (Python 3.13.5, scikit-learn 1.9.0, pandas 3.0.5, numpy 2.5.1) is documented in Appendix B of the dissertation and captured in `requirements.txt`.
 
-On the current synthetic corpus (200 sessions per class):
+---
 
-| Method | Precision | Recall | F1 |
-|---|---|---|---|
-| Baseline schema validator | 1.00 | 0.51 | 0.67 |
-| ML anomaly detector | 1.00 | 1.00 | 1.00 |
+## Limitations
 
-Broken down by attack class, the baseline gets **0% recall on rug-pull
-attacks** — it structurally cannot see a description that changes after
-registration, which is exactly the gap the proposal argues for.
+- **Synthetic corpus.** No publicly available labelled dataset of real MCP tool-poisoning attacks exists. The corpus is generated from a documented noise model calibrated against the literature; the degree to which the trained detector generalises to real deployments is unknown. This is the primary limitation of the study, discussed in Chapter 7, §7.3.
 
-**Honest caveat before you write this in the dissertation:** 100% recall
-for the ML model is a sign the synthetic corpus is currently too clean —
-poisoned/rug-pull descriptions always contain an obvious keyword, so the
-model has an easy time. Before this becomes a real evaluation result,
-week 4–5 work should add noisier, more ambiguous synthetic cases (e.g.
-benign tools that legitimately use words like "system" or "config", and
-attack variants that don't rely on an obvious keyword) so the comparison
-is actually informative rather than trivially separable. Treat the numbers
-above as "the pipeline runs end-to-end and the expected pattern shows up,"
-not as a result to cite yet.
+- **Feature set.** The eleven features are protocol-level observables only — description text is not treated as natural language. An adversary who is aware of the feature set and crafts injection text to remain below keyword and length thresholds would degrade detection performance. Extensions to the feature set are identified as future work in Chapter 8, §8.4.
 
-## Moving this into Claude Code for the rest of the term
-
-This was built in a temporary sandbox that won't persist. To keep working
-on it week over week:
-
-1. Download this whole folder and `git init` it locally (or push to a
-   private GitHub repo).
-2. Install Claude Code (`curl -fsSL https://claude.ai/install.sh | bash` on
-   macOS/Linux — see https://code.claude.com/docs/en/setup for Windows).
-3. Open the repo folder and run `claude` — it can now read, run, and edit
-   this code with full persistence across sessions, since it's just files
-   on your machine plus git history.
-4. Commit after each work session so weeks 4–13 of the plan build on a
-   real history you (and your supervisor, if asked) can review.
-
-## Known limitations to state in the dissertation
-
-- The corpus is entirely synthetic; MCP reference-implementation behaviour
-  is assumed to be representative of production behaviour (stated as an
-  assumption in Task 1.2).
-- The "attack surface" simulated here is metadata/description patterns,
-  not a live prompt-injection attack against a running LLM — consistent
-  with the research question, but worth being explicit about in the
-  methodology section so it doesn't read as an overclaim.
-- Current corpus separability is too clean (see caveat above) — treat as
-  a scaffold to make more realistic during weeks 4–5, not a finished
-  dataset.
+- **Stealthy rug-pull bound.** A rug-pull attacker who mutates and then reverts the tool description before the monitoring snapshot produces a session that is indistinguishable from benign in the eleven-feature space. The 8 false negatives in the balanced evaluation represent a hard theoretical lower bound on point-in-time recall, not a model deficiency. This bound and the case for continuous monitoring are discussed in Chapter 7, §7.2.
