@@ -1,0 +1,6 @@
+method,f1,f1_lo,f1_hi,recall_rugpull,recall_rugpull_lo,recall_rugpull_hi,recall_poisoned,recall_poisoned_lo,recall_poisoned_hi,benign_fp_rate,benign_fp_rate_lo,benign_fp_rate_hi
+B1,0.483,0.393,0.588,0.0,0.0,0.0,0.655,0.515,0.787,0.05,0.0,0.125
+B2,0.578,0.502,0.641,0.9,0.807,0.975,0.0,0.0,0.0,0.21,0.125,0.325
+logistic_regression,0.854,0.797,0.902,0.892,0.796,0.975,0.778,0.639,0.899,0.238,0.131,0.369
+random_forest,0.955,0.921,0.98,0.903,0.813,0.995,1.0,1.0,1.0,0.082,0.0,0.194
+gradient_boosting,0.961,0.931,0.986,0.91,0.847,0.975,0.998,1.0,1.0,0.063,0.0,0.15
